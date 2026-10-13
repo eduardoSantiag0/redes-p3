@@ -25,10 +25,12 @@ def conexao_aceita(conexao):
 async def main():
     enlace = CamadaEnlaceLinux()
     rede = IP(enlace)
-    rede.definir_endereco_host('192.168.88.231')  # altere para o endereço IP da sua máquina, consulte-o com o comando: ip addr
+    rede.definir_endereco_host('172.30.192.1')  # altere para o endereço IP da sua máquina, consulte-o com o comando: ip addr
     rede.definir_tabela_encaminhamento([
-        ('192.168.88.231/32', '192.168.88.231'),  # altere aqui também para o endereço da sua máquina (sua máquina permite alcançar a si mesma)
+        ('172.30.192.1/32', '172.30.192.1'),  # altere aqui também para o endereço da sua máquina (sua máquina permite alcançar a si mesma)
+        # ('192.168.88.231/32', '192.168.88.231'), 
         ('0.0.0.0/0', '192.168.88.1')  # consulte sua rota padrão com o comando: ip route | grep default
+        ('', '172.30.192.1')
     ])
     servidor = Servidor(rede, 7000)
     servidor.registrar_monitor_de_conexoes_aceitas(conexao_aceita)

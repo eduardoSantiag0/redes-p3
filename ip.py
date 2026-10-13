@@ -1,5 +1,13 @@
 from iputils import *
+from dataclasses import dataclass
 
+# IP : CIDR
+# IP é o identificador consiste em 32 bits: 192.168.1.50  
+# CIDR: definir um intervalo (ou bloco) de endereços IP.  
+    # IP de referência + '/'  + um número para dizer o tamanho da rede em bits. 
+        # 192.168.1.0/24
+        # (indo do 192.168.1.0 até o 192.168.1.255).
+# Esse CIDR representa todos os IPs que começam com 192.168.1. 
 
 class IP:
     def __init__(self, enlace):
@@ -13,6 +21,7 @@ class IP:
         self.enlace.registrar_recebedor(self.__raw_recv)
         self.ignore_checksum = self.enlace.ignore_checksum
         self.meu_endereco = None
+        self.tabela_encaminhamento: dict[str, str] = {}
 
     def __raw_recv(self, datagrama):
         dscp, ecn, identification, flags, frag_offset, ttl, proto, \
@@ -27,11 +36,28 @@ class IP:
             # TODO: Trate corretamente o campo TTL do datagrama
             self.enlace.enviar(datagrama, next_hop)
 
+
+    def isInCIDR(dest_addr, cidr):
+        # Separando e pegando os tamanho da rede
+        network_addr, prefix = cidr.split('/')
+        network_size = int(prefix)
+
+        # IP para bytes
+        dest = int.from_bytes(str2addr(dest_addr), 'big')
+        network = int.from_bytes(str2addr(network_addr), 'big')
+
+        # Criando máscara de subrede
+        mask = (0xFFFFFFFF << (32 - network_size)) & 0xFFFFFFFF
+
+        return (dest & mask) == (network & mask)
+
+
     def _next_hop(self, dest_addr):
-        # TODO: Use a tabela de encaminhamento para determinar o próximo salto
-        # (next_hop) a partir do endereço de destino do datagrama (dest_addr).
-        # Retorne o next_hop para o dest_addr fornecido.
-        pass
+        for cidr in self.tabela_encaminhamento:
+            if isInCIDR(dest_addr, cidr):
+                return self.tabela_encaminhamento[cidr].next_hop
+
+        return None
 
     def definir_endereco_host(self, meu_endereco):
         """
@@ -51,6 +77,7 @@ class IP:
         """
         # TODO: Guarde a tabela de encaminhamento. Se julgar conveniente,
         # converta-a em uma estrutura de dados mais eficiente.
+        self.tabela_encaminhamento = tabela
         pass
 
     def registrar_recebedor(self, callback):
