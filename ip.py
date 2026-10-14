@@ -32,10 +32,6 @@ class ICMPHeader:
     type = 11 # Time Exceeded Code,
     code = 0 # Time to live (TTL) expired in transit,
     rest_of_header: bytes = b'\x00\x00\x00\x00' # 4 bytes zerados fixos
-    ihl: int = 5  # tamanho
-    version = vihl >> 4
-    ihl = vihl & 0xf
-    assert version == 4
 
 
 class IP:
@@ -54,8 +50,6 @@ class IP:
         self.tabela_encaminhamento: list[tuple[str, str]] = []
 
 
-    #TODO para que a sua implementação permita diagnóstico de rotas(como os gerados pelo utilitário traceroute).
-    #TODO PASSO 5 gere uma mensagem do tipo ICMP Time exceeded e envie-a de volta ao remetente
     @staticmethod
     def generate_icmp_time_out_message(datagrama):
         ihl = (datagrama[0] & 0x0F) * 4
@@ -100,10 +94,16 @@ class IP:
         else:
             # Descarta o pacote
             if ttl <= 1:
-                icmp_message = self.generate_icmp_time_out_message(
-                    datagrama
+                next_hop = self._next_hop(src_addr)
+                if next_hop is None:
+                    return
+                icmp_payload = self.generate_icmp_time_out_message(datagrama)
+                icmp_datagrama = self._montar_datagrama(
+                    icmp_payload,
+                    protocol=IPPROTO_ICMP,
+                    dest_addr=src_addr,
                 )
-                self.enlace.enviar(bytes(icmp_message), src_addr) # Enviar de volta
+                self.enlace.enviar(icmp_datagrama, next_hop)
                 return
             # atua como roteador
             next_hop = self._next_hop(dst_addr)
@@ -194,8 +194,6 @@ class IP:
         Onde os CIDR são fornecidos no formato 'x.y.z.w/n', e os
         next_hop são fornecidos no formato 'x.y.z.w'.
         """
-        # TODO: Guarde a tabela de encaminhamento. Se julgar conveniente,
-        # converta-a em uma estrutura de dados mais eficiente.
         self.tabela_encaminhamento = tabela
         pass
 
@@ -206,24 +204,14 @@ class IP:
         self.callback = callback
 
 
-#TODO: Monte um datagrama IP que contenha como payload o segmento TCP fornecido.
-
-    def enviar(self, segmento, dest_addr):
-
-        """
-        Envia segmento para dest_addr, onde dest_addr é um endereço IPv4
-        (string no formato x.y.z.w).
-        """
-        next_hop = self._next_hop(dest_addr)
-        if next_hop is None:
-            return
-
+    def _montar_datagrama(self, payload: bytes, protocol: int, dest_addr: str) -> bytes:
         header = IPV4_Header(
             src_addr=self.meu_endereco,
-            dst_addr=dest_addr
+            dst_addr=dest_addr,
+            protocol=protocol,
         )
 
-        total_size = 20 + len(segmento)
+        total_size = 20 + len(payload)
 
         version_ihl = (4 << 4) | header.ihl
         dscp_ecn = header.dscp << 2
@@ -259,8 +247,17 @@ class IP:
             str2addr(header.dst_addr)
         )
 
-        datagrama = cabecalho + segmento
+        return cabecalho + payload
 
+    def enviar(self, segmento, dest_addr):
+        """
+        Envia segmento para dest_addr, onde dest_addr é um endereço IPv4
+        (string no formato x.y.z.w).
+        """
+        next_hop = self._next_hop(dest_addr)
+        if next_hop is None:
+            return
 
+        datagrama = self._montar_datagrama(segmento, IPPROTO_TCP, dest_addr)
 
         self.enlace.enviar(datagrama, next_hop)
