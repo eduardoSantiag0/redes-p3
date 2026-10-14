@@ -43,22 +43,61 @@ class IP:
         self.tabela_encaminhamento: list[tuple[str, str]] = [
             ('172.30.192.1/32', '172.30.192.1')
         ]
-    
 
+    #TODO Melhore a implementação do método __raw_recv da classe IP para que
+    # ela consiga tratar adequadamente o campo de TTL quando estiver realizando a função de roteamento.
 
-    
+    #TODO Decremente o número contido no TTL antes de encaminhar o datagrama para o próximo roteador.
+    # Não se esqueça de corrigir o checksum do cabeçalho.
+    # Se o TTL chegar a zero, descarte o datagrama em vez de encaminhá - lo.
+
+    #TODO PASSO 5 gere uma mensagem do tipo ICMP Time exceeded e envie-a de volta ao remetente
+
     def __raw_recv(self, datagrama):
         dscp, ecn, identification, flags, frag_offset, ttl, proto, \
            src_addr, dst_addr, payload = read_ipv4_header(datagrama)
+
+        print("Destino:", dst_addr)
+        print("Meu endereço:", self.meu_endereco)
+        print("TTL:", ttl)
+        print("Tabela:", self.tabela_encaminhamento)
+
         if dst_addr == self.meu_endereco:
             # atua como host
             if proto == IPPROTO_TCP and self.callback:
                 self.callback(src_addr, dst_addr, payload)
         else:
+            # Descarta o pacote
+            if ttl <= 1:
+                return
+
+
             # atua como roteador
             next_hop = self._next_hop(dst_addr)
-            # TODO: Trate corretamente o campo TTL do datagrama
-            self.enlace.enviar(datagrama, next_hop)
+
+            # Não existe rota
+            if next_hop is None:
+                return
+
+            # Decrementa o TTL
+            ttl -= 1
+
+            # Modifica o datagrama
+            datagrama = bytearray(datagrama)
+            datagrama[8] = ttl
+
+            # Zera checksum
+            datagrama[10:12] = b'\x00\x00'
+
+            # Calcula checksum do cabeçalho
+            ihl = (datagrama[0] & 0x0F) * 4
+            checksum = calc_checksum(bytes(datagrama[:ihl]))
+
+            # Insere checksum atualizado
+            datagrama[10:12] = struct.pack('!H', checksum)
+
+            # Encaminha
+            self.enlace.enviar(bytes(datagrama), next_hop)
 
     @staticmethod
     def isInCIDR(dest_addr: str, cidr: str) -> bool:
@@ -77,7 +116,7 @@ class IP:
 
 
 
-    def longest_prefix(
+    def longest_prefix_match(
             self,
             candidates: list[tuple[str, str]]
     ) -> tuple[str, str] | None:
@@ -103,7 +142,7 @@ class IP:
             if self.isInCIDR(dest_addr, cidr):
                 possible_candidates.append((cidr, next_hop))
 
-        best_candidate = self.longest_prefix(possible_candidates)
+        best_candidate = self.longest_prefix_match(possible_candidates)
 
         if best_candidate is not None:
             return best_candidate[1]
