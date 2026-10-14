@@ -26,6 +26,17 @@ class IPV4_Header:
     protocol: int = 6  # (Código 6 fixo para o protocolo TCP)
     checksum: int = 0
 
+@dataclass
+class ICMPHeader:
+    checksum: int
+    type = 11 # Time Exceeded Code,
+    code = 0 # Time to live (TTL) expired in transit,
+    rest_of_header: bytes = b'\x00\x00\x00\x00' # 4 bytes zerados fixos
+    ihl: int = 5  # tamanho
+    version = vihl >> 4
+    ihl = vihl & 0xf
+    assert version == 4
+
 
 class IP:
 
@@ -40,18 +51,38 @@ class IP:
         self.enlace.registrar_recebedor(self.__raw_recv)
         self.ignore_checksum = self.enlace.ignore_checksum
         self.meu_endereco = None
-        self.tabela_encaminhamento: list[tuple[str, str]] = [
-            ('172.30.192.1/32', '172.30.192.1')
-        ]
+        self.tabela_encaminhamento: list[tuple[str, str]] = []
 
-    #TODO Melhore a implementação do método __raw_recv da classe IP para que
-    # ela consiga tratar adequadamente o campo de TTL quando estiver realizando a função de roteamento.
 
-    #TODO Decremente o número contido no TTL antes de encaminhar o datagrama para o próximo roteador.
-    # Não se esqueça de corrigir o checksum do cabeçalho.
-    # Se o TTL chegar a zero, descarte o datagrama em vez de encaminhá - lo.
-
+    #TODO para que a sua implementação permita diagnóstico de rotas(como os gerados pelo utilitário traceroute).
     #TODO PASSO 5 gere uma mensagem do tipo ICMP Time exceeded e envie-a de volta ao remetente
+    @staticmethod
+    def generate_icmp_time_out_message(datagrama):
+        ihl = (datagrama[0] & 0x0F) * 4
+        icmp_payload = datagrama[:ihl + 8]
+
+        header = ICMPHeader(0)
+
+        icmp_header = struct.pack(
+            '!BBH4s',
+            header.type,
+            header.code,
+            0,
+            header.rest_of_header
+        )
+
+        icmp_message = icmp_header + icmp_payload
+        checksum = calc_checksum(icmp_message)
+
+        icmp_header = struct.pack(
+            '!BBH4s',
+            header.type,
+            header.code,
+            checksum,
+            header.rest_of_header
+        )
+
+        return icmp_header + icmp_payload
 
     def __raw_recv(self, datagrama):
         dscp, ecn, identification, flags, frag_offset, ttl, proto, \
@@ -69,15 +100,13 @@ class IP:
         else:
             # Descarta o pacote
             if ttl <= 1:
+                icmp_message = self.generate_icmp_time_out_message(
+                    datagrama
+                )
+                self.enlace.enviar(bytes(icmp_message), src_addr) # Enviar de volta
                 return
-
-
             # atua como roteador
             next_hop = self._next_hop(dst_addr)
-
-            # Não existe rota
-            if next_hop is None:
-                return
 
             # Decrementa o TTL
             ttl -= 1
@@ -96,7 +125,6 @@ class IP:
             # Insere checksum atualizado
             datagrama[10:12] = struct.pack('!H', checksum)
 
-            # Encaminha
             self.enlace.enviar(bytes(datagrama), next_hop)
 
     @staticmethod
